@@ -1,19 +1,46 @@
+#root
+  vertical-align: middle
+  
 .musicPlayer
+  margin-top: 50px
+  margin-left: auto
+  margin-right: auto
   width: 575px
   height: 180px
   border: 5px solid black
-  display: inline-block
+  display: block
   .albumArt
     float: left
     margin: 5px
     width: 164px
     height: 164px
     border: 3px solid black
+    .centerImg
+      height: 100%
+      display: inline-block
+      vertical-align: middle
     img
-      width: 164px
-      height: 164px
+      max-width: 164px
+      max-height: 164px
+      vertical-align: middle
+  .volumeControl
+    width: 5%
+    float: right
+    height: 90%
+    background-color: black
+    cursor: pointer
+    position: relative
+    right: 15px
+    top: 10px
+    .volumeController
+      bottom: 0px
+      display: block
+      position: absolute
+      height: 5%
+      width: 100%
+      background-color: grey
   .metadata
-    width: 65%
+    width: 55%
     position: relative
     right: 0px
     top: 0px

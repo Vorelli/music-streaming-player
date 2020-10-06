@@ -8,7 +8,8 @@
   width: 575px
   height: 180px
   border: 5px solid black
-  display: block
+  display: flex
+  justify-content: space-between
   .albumArt
     float: left
     margin: 5px
@@ -40,23 +41,26 @@
       width: 100%
       background-color: grey
   .metadata
+    margin-left: -30px
+    display: flex
+    flex-flow: column nowrap
+    justify-content: space-between
     width: 55%
     position: relative
     right: 0px
     top: 0px
-    display: inline-block
     margin-top: 2px
-    margin-left: 10px
-    >div
-      margin-bottom: 10px
+    .artistName
+      margin-top: 2px
     .playedToTotal
-      margin-bottom: 5px
-      margin-top: 56px
+      margin-bottom: -10px
+      margin-top: 40px
       text-align: center
     .playedBar
       width: 100%
       background-color: black
       height: 20px
+      margin-bottom: 5px
       .playedBarProgress
         position: relative
         width: 99%

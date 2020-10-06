@@ -1,5 +1,5 @@
 {
-  "name": "reacttutorialself",
+  "name": "music-streaming-player",
   "version": "1.0.0",
   "description": "Actual music player for a music-streaming-server which can be controller with a music-streaming controller.",
   "main": "index.js",
@@ -33,5 +33,12 @@
     "webpack": "^4.44.2",
     "webpack-cli": "^3.3.12",
     "webpack-dev-server": "^3.11.0"
+  },
+  "bit": {
+    "env": {
+      "compiler": "bit.envs/compilers/react@1.0.20"
+    },
+    "componentsDefaultDirectory": "components/{name}",
+    "packageManager": "npm"
   }
 }

@@ -1,4 +1,5 @@
 import React, { Component } from 'react';
+import './index.sass';
 
 export default class MusicPlayer extends Component {
   constructor(props) {
@@ -12,44 +13,60 @@ export default class MusicPlayer extends Component {
       prevSong: null,
       prevSongInfo: {},
       draggingVolume: false,
-      volume: 0.05
+      volume: 0.05,
+      paused: false,
+      address: props.address || 'localhost:8080'
     };
   }
 
   fetchCurrentSong() {
     return Promise.all([
-      fetch('http://localhost:8080/currentSong'),
-      fetch('http://localhost:8080/currentSongInfo'),
-      fetch('http://localhost:8080/timestamp')
+      fetch('http://' + this.state.address + '/currentSong', {
+        mode: 'cors'
+      }),
+      fetch('http://' + this.state.address + '/currentSongInfo', {
+        mode: 'cors'
+      }),
+      fetch('http://' + this.state.address + '/timestamp', { mode: 'cors' })
     ]);
   }
 
   fetchNextSong() {
     return Promise.all([
-      fetch('http://localhost:8080/nextSong'),
-      fetch('http://localhost:8080/nextSongInfo')
+      fetch('http://' + this.state.address + '/nextSong', { mode: 'cors' }),
+      fetch('http://' + this.state.address + '/nextSongInfo', {
+        mode: 'cors'
+      })
     ]);
   }
 
   fetchPrevSong() {
     return Promise.all([
-      fetch('http://localhost:8080/prevSong'),
-      fetch('http://localhost:8080/prevSongInfo')
+      fetch('http://' + this.state.address + '/prevSong', { mode: 'cors' }),
+      fetch('http://' + this.state.address + '/prevSongInfo', {
+        mode: 'cors'
+      })
     ]);
   }
 
   firstLoad() {
-    const websocket = new WebSocket('ws://localhost:8080');
+    const websocket = new WebSocket('ws://' + this.state.address);
     websocket.onopen = () => {
       websocket.send('hi');
     };
     websocket.onmessage = (messageEvent) => {
-      switch (messageEvent.data) {
+      switch (messageEvent.data.toLowerCase()) {
         case 'next':
           this.playNext();
           break;
         case 'prev':
           this.playPrev();
+          break;
+        case 'playing':
+          this.play();
+          break;
+        case 'paused':
+          this.pause();
           break;
       }
     };
@@ -118,10 +135,13 @@ export default class MusicPlayer extends Component {
 
   mouseMoved(event) {
     if (this.state.draggingVolume) {
-      let y = event.clientY - 65;
+      let y = event.clientY - this.state.volumeControl.offsetTop;
       if (y < 0) y = 0;
-      if (y > 163) y = 163;
-      const exactPercentage = 100 - (y / 163) * 100;
+      if (y > this.state.volumeControl.offsetHeight) {
+        y = this.state.volumeControl.offsetHeight;
+      }
+      const exactPercentage =
+        100 - (y / this.state.volumeControl.offsetHeight) * 100;
       this.state.volumeController.style.height = exactPercentage + '%';
       document.getElementById('audio').volume = exactPercentage / 100;
       this.setState({ volume: exactPercentage / 100 });
@@ -130,6 +150,14 @@ export default class MusicPlayer extends Component {
 
   stopDrag(event) {
     if (this.state.draggingVolume) this.setState({ draggingVolume: false });
+  }
+
+  play() {
+    document.getElementById('audio').play();
+  }
+
+  pause() {
+    document.getElementById('audio').pause();
   }
 
   playNext() {
@@ -146,7 +174,7 @@ export default class MusicPlayer extends Component {
 
     this.setState(newStateProps, () => {
       const pingStart = new Date();
-      fetch('http://localhost:8080/timestamp')
+      fetch('http://' + this.state.address + '/timestamp')
         .then((response) => response.json())
         .then((response) => {
           const currentTime =
@@ -179,7 +207,7 @@ export default class MusicPlayer extends Component {
 
     this.setState(newStateProps, () => {
       const pingStart = new Date();
-      fetch('http://localhost:8080/timestamp')
+      fetch('http://' + this.state.address + '/timestamp')
         .then((response) => response.json())
         .then((response) => {
           const currentTime =
@@ -215,7 +243,7 @@ export default class MusicPlayer extends Component {
     const source = document.createElement('source');
     source.src = src;
     document.getElementById('audio').appendChild(source);
-    document.getElementById('audio').play();
+    !this.state.paused ? this.play() : this.pause();
   }
 
   loadPrevSongIntoState(values) {
@@ -249,6 +277,7 @@ export default class MusicPlayer extends Component {
     const newStateProps = {};
     newStateProps.currentSong = currentSong;
     newStateProps.currentSongInfo = this.formatTags(values[1]);
+    newStateProps.paused = values[2].message !== 'Currently playing';
 
     // set time stamp with ping in mind.
     const currentTimeWithPing =
@@ -257,7 +286,7 @@ export default class MusicPlayer extends Component {
     this.setState(newStateProps);
 
     document.querySelector('#audio').currentTime = currentTimeWithPing;
-    document.querySelector('#audio').play();
+    !newStateProps.paused ? this.play() : this.pause();
     this.forceUpdate();
   }
 

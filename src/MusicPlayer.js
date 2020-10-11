@@ -15,7 +15,35 @@ export default class MusicPlayer extends Component {
       draggingVolume: false,
       volume: 0.05,
       paused: false,
-      address: props.address || 'localhost:8080'
+      setPause: props.setPause || (() => {}),
+      address: props.address || 'localhost:8080',
+      scrollSensitivity: 3
+    };
+
+    this.scroll = (e) => {
+      let currentPercent = document.getElementById('audio').volume * 100;
+      if (
+        (e.deltaY > 0 && currentPercent > 0) ||
+        (e.deltaY < 0 && currentPercent < 100)
+      ) {
+        e.stopPropagation();
+        e.preventDefault();
+        e.nativeEvent.stopPropagation();
+        e.nativeEvent.preventDefault();
+        e.nativeEvent.stopImmediatePropagation();
+      }
+
+      if (e.deltaY > 0) {
+        // scroll down
+        currentPercent -= 1 * this.state.scrollSensitivity;
+        currentPercent = Math.max(0, currentPercent);
+      } else if (e.deltaY < 0) {
+        // scroll up
+        currentPercent += 1 * this.state.scrollSensitivity;
+        currentPercent = Math.min(currentPercent, 100);
+      }
+
+      this.setVolumeAndVolumeController(currentPercent);
     };
   }
 
@@ -68,10 +96,21 @@ export default class MusicPlayer extends Component {
         case 'paused':
           this.pause();
           break;
+        case 'reset':
+          this.reset();
+          break;
+      }
+      if (messageEvent.data.toLowerCase().slice(0, 8) === 'newtime:') {
+        const timeInMilliseconds = messageEvent.data.toLowerCase().slice(9);
+        document.getElementById('audio').currentTime =
+          timeInMilliseconds / 1000;
       }
     };
     this.setState({ websocket });
+    this.reset();
+  }
 
+  reset() {
     const pingStart = new Date();
     Promise.all([
       this.fetchCurrentSong(),
@@ -80,16 +119,19 @@ export default class MusicPlayer extends Component {
     ])
       .then((values) => {
         const loadNextSongIntoStateValues = [
+          // next song
           values[1][0].blob(), // song blob
           values[1][1].json() //  song info json
         ];
 
         const loadPrevSongIntoState = [
+          // prev song
           values[2][0].blob(),
           values[2][1].json()
         ];
 
         const setupCurrentSongValues = [
+          // current song
           values[0][0].blob(), // song blob
           values[0][1].json(), // song info JSON
           values[0][2].json() //  timestamp JSON
@@ -131,20 +173,31 @@ export default class MusicPlayer extends Component {
 
   startDrag(event) {
     this.setState({ draggingVolume: true });
+    this.mouseMoved(event);
+  }
+
+  setVolumeAndVolumeController(percentage) {
+    this.state.volumeController.style.height = percentage + '%';
+    document.getElementById('audio').volume = percentage / 100;
+    this.setState({ volume: percentage / 100 });
   }
 
   mouseMoved(event) {
     if (this.state.draggingVolume) {
-      let y = event.clientY - this.state.volumeControl.offsetTop;
+      var scrollTop =
+        window.pageYOffset ||
+        (document.documentElement || document.body.parentNode || document.body)
+          .scrollTop;
+      let y = event.clientY - this.state.volumeControl.offsetTop + scrollTop;
       if (y < 0) y = 0;
-      if (y > this.state.volumeControl.offsetHeight) {
-        y = this.state.volumeControl.offsetHeight;
+      if (y > this.state.volumeControl.offsetHeight + scrollTop) {
+        y = this.state.volumeControl.offsetHeight + scrollTop;
       }
-      const exactPercentage =
+      let exactPercentage =
         100 - (y / this.state.volumeControl.offsetHeight) * 100;
-      this.state.volumeController.style.height = exactPercentage + '%';
-      document.getElementById('audio').volume = exactPercentage / 100;
-      this.setState({ volume: exactPercentage / 100 });
+      exactPercentage = Math.max(0, exactPercentage);
+      exactPercentage = Math.min(100, exactPercentage);
+      this.setVolumeAndVolumeController(exactPercentage);
     }
   }
 
@@ -154,10 +207,14 @@ export default class MusicPlayer extends Component {
 
   play() {
     document.getElementById('audio').play();
+    this.setState({ paused: false });
+    this.state.setPause(false);
   }
 
   pause() {
     document.getElementById('audio').pause();
+    this.setState({ paused: true });
+    this.state.setPause(true);
   }
 
   playNext() {
@@ -243,7 +300,8 @@ export default class MusicPlayer extends Component {
     const source = document.createElement('source');
     source.src = src;
     document.getElementById('audio').appendChild(source);
-    !this.state.paused ? this.play() : this.pause();
+    if (this.state.paused) this.pause();
+    else this.play();
   }
 
   loadPrevSongIntoState(values) {
@@ -281,7 +339,7 @@ export default class MusicPlayer extends Component {
 
     // set time stamp with ping in mind.
     const currentTimeWithPing =
-      values[2].timestamp / 1000 + (new Date() - pingStart) / 1000 - 0.5;
+      values[2].timestamp / 1000 + (new Date() - pingStart) / 1000;
 
     this.setState(newStateProps);
 
@@ -364,7 +422,7 @@ export default class MusicPlayer extends Component {
           </div>
           <audio id='audio' controls={false}></audio>
         </div>
-        <div className='volumeControl'>
+        <div className='volumeControl' onWheel={this.scroll}>
           <span className='volumeController' />
         </div>
       </div>

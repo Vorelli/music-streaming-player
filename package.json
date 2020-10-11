@@ -4,7 +4,7 @@
   "description": "Actual music player for a music-streaming-server which can be controller with a music-streaming controller.",
   "main": "index.js",
   "scripts": {
-    "start": "webpack-dev-server --mode development --open --hot",
+    "start": "webpack-dev-server --mode development --hot",
     "build": "webpack --mode production",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

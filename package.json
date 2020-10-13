@@ -4,7 +4,7 @@
   "description": "Actual music player for a music-streaming-server which can be controller with a music-streaming controller.",
   "main": "index.js",
   "scripts": {
-    "start": "webpack-dev-server --mode development --hot",
+    "start": "webpack-dev-server --mode development --hot --host 0.0.0.0 --port 8081",
     "build": "webpack --mode production",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -22,6 +22,7 @@
     "babel-loader": "^8.1.0",
     "babel-plugin-transform-react-pug": "^7.0.1",
     "css-loader": "^4.3.0",
+    "file-loader": "^6.1.1",
     "html-webpack-plugin": "^4.5.0",
     "react": "^16.13.1",
     "react-dom": "^16.13.1",

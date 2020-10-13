@@ -1,9 +1,10 @@
-import React, { Component } from 'react';
+import React, { Component, createRef } from 'react';
 import './index.sass';
+import questionImage from '../public/question.png';
 
 export default class MusicPlayer extends Component {
   constructor(props) {
-    super();
+    super(props);
     this.state = {
       websocket: null,
       currentSong: null,
@@ -13,99 +14,95 @@ export default class MusicPlayer extends Component {
       prevSong: null,
       prevSongInfo: {},
       draggingVolume: false,
-      volume: 0.05,
+      volume: Number.parseFloat(localStorage.getItem('volume')) || 5,
       paused: false,
       setPause: props.setPause || (() => {}),
       address: props.address || 'localhost:8080',
-      scrollSensitivity: 3
-    };
-
-    this.scroll = (e) => {
-      let currentPercent = document.getElementById('audio').volume * 100;
-      if (
-        (e.deltaY > 0 && currentPercent > 0) ||
-        (e.deltaY < 0 && currentPercent < 100)
-      ) {
-        e.stopPropagation();
-        e.preventDefault();
-        e.nativeEvent.stopPropagation();
-        e.nativeEvent.preventDefault();
-        e.nativeEvent.stopImmediatePropagation();
+      scrollSensitivity: 3,
+      duration: undefined,
+      durationFormatted: undefined,
+      currentTime: undefined,
+      currentTimeDisplay: undefined,
+      audioRef: createRef(),
+      get audio() {
+        return this.audioRef.current;
       }
-
-      if (e.deltaY > 0) {
-        // scroll down
-        currentPercent -= 1 * this.state.scrollSensitivity;
-        currentPercent = Math.max(0, currentPercent);
-      } else if (e.deltaY < 0) {
-        // scroll up
-        currentPercent += 1 * this.state.scrollSensitivity;
-        currentPercent = Math.min(currentPercent, 100);
-      }
-
-      this.setVolumeAndVolumeController(currentPercent);
     };
   }
 
-  fetchCurrentSong() {
+  httpFetchCorsGet(end) {
+    return fetch('http://' + this.state.address + end, { mode: 'cors' });
+  }
+
+  fetchSongAndInfo(key, timestamp = false) {
     return Promise.all([
-      fetch('http://' + this.state.address + '/currentSong', {
-        mode: 'cors'
-      }),
-      fetch('http://' + this.state.address + '/currentSongInfo', {
-        mode: 'cors'
-      }),
-      fetch('http://' + this.state.address + '/timestamp', { mode: 'cors' })
+      this.httpFetchCorsGet('/' + key + 'Song'),
+      this.httpFetchCorsGet('/' + key + 'SongInfo'),
+      timestamp ? this.httpFetchCorsGet('/timestamp') : Promise.resolve('')
     ]);
   }
 
-  fetchNextSong() {
-    return Promise.all([
-      fetch('http://' + this.state.address + '/nextSong', { mode: 'cors' }),
-      fetch('http://' + this.state.address + '/nextSongInfo', {
-        mode: 'cors'
-      })
-    ]);
+  componentDidMount() {
+    this.firstLoad();
+
+    const newState = {
+      volumeControl: document.querySelector('.volumeControl'),
+      volumeController: document.querySelector('.volumeController'),
+      mounted: true
+    };
+    setTimeout(this.setState.bind(this, { beenFiveSeconds: true }), 5000);
+    this.setState(newState);
+
+    newState.volumeControl.addEventListener('mousedown', (ev) => {
+      this.setState({ draggingVolume: true });
+      this.mouseMoved(ev);
+    });
+
+    document.addEventListener('mouseup', (_) =>
+      this.setState({ draggingVolume: false })
+    );
+    document.addEventListener('mousemove', this.mouseMoved.bind(this));
+
+    this.state.audio.addEventListener('paused', () => {
+      this.setState({ paused: true });
+      this.state.setPause(true);
+    });
+    this.state.audio.addEventListener('playing', () => {
+      this.setState({ paused: false });
+      this.state.setPause(false);
+    });
   }
 
-  fetchPrevSong() {
-    return Promise.all([
-      fetch('http://' + this.state.address + '/prevSong', { mode: 'cors' }),
-      fetch('http://' + this.state.address + '/prevSongInfo', {
-        mode: 'cors'
-      })
-    ]);
+  handleScroll(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    let currentPercent = this.state.audio.volume * 100;
+    const diff = e.deltaY > 0 ? -1 : e.deltaY < 0 ? 1 : 0;
+    currentPercent += diff * this.state.scrollSensitivity;
+    currentPercent = Math.min(100, Math.max(0, currentPercent));
+
+    this.setVolumeAndVolumeController(currentPercent);
+  }
+
+  handleWebsocketMessage(messageEvent) {
+    const data = messageEvent.data;
+    const commands = {
+      next: this.playNext.bind(this),
+      prev: this.playPrev.bind(this),
+      playing: () => this.state.audio.play(),
+      paused: () => this.state.audio.pause(),
+      reset: this.reset.bind(this)
+    };
+    if (commands[data]) commands[data]();
+    else if (data.slice(0, 8) === 'newtime:') {
+      this.state.audio.currentTime = data.slice(9) / 1000;
+    }
   }
 
   firstLoad() {
     const websocket = new WebSocket('ws://' + this.state.address);
-    websocket.onopen = () => {
-      websocket.send('hi');
-    };
-    websocket.onmessage = (messageEvent) => {
-      switch (messageEvent.data.toLowerCase()) {
-        case 'next':
-          this.playNext();
-          break;
-        case 'prev':
-          this.playPrev();
-          break;
-        case 'playing':
-          this.play();
-          break;
-        case 'paused':
-          this.pause();
-          break;
-        case 'reset':
-          this.reset();
-          break;
-      }
-      if (messageEvent.data.toLowerCase().slice(0, 8) === 'newtime:') {
-        const timeInMilliseconds = messageEvent.data.toLowerCase().slice(9);
-        document.getElementById('audio').currentTime =
-          timeInMilliseconds / 1000;
-      }
-    };
+    websocket.onmessage = this.handleWebsocketMessage.bind(this);
     this.setState({ websocket });
     this.reset();
   }
@@ -113,40 +110,38 @@ export default class MusicPlayer extends Component {
   reset() {
     const pingStart = new Date();
     Promise.all([
-      this.fetchCurrentSong(),
-      this.fetchNextSong(),
-      this.fetchPrevSong()
+      this.fetchSongAndInfo('current', true),
+      this.fetchSongAndInfo('next'),
+      this.fetchSongAndInfo('prev')
     ])
       .then((values) => {
         const loadNextSongIntoStateValues = [
-          // next song
           values[1][0].blob(), // song blob
-          values[1][1].json() //  song info json
+          values[1][1].json() //  song info JSON
         ];
-
-        const loadPrevSongIntoState = [
-          // prev song
-          values[2][0].blob(),
-          values[2][1].json()
+        const loadPrevSongIntoStateValues = [
+          values[2][0].blob(), // song blob
+          values[2][1].json() //  song info JSON
         ];
-
         const setupCurrentSongValues = [
-          // current song
           values[0][0].blob(), // song blob
           values[0][1].json(), // song info JSON
           values[0][2].json() //  timestamp JSON
         ];
 
-        Promise.all([...loadNextSongIntoStateValues, ...loadPrevSongIntoState])
+        Promise.all([
+          ...loadNextSongIntoStateValues,
+          ...loadPrevSongIntoStateValues
+        ])
           .then((values) => {
             const nextSongVals = [values[0], values[1]];
             const prevSongVals = [values[2], values[3]];
-            this.loadNextSongIntoState(nextSongVals);
-            this.loadPrevSongIntoState(prevSongVals);
+            this.loadSongIntoState(nextSongVals, 'next');
+            this.loadSongIntoState(prevSongVals, 'prev');
           })
           .then(() =>
             Promise.all(setupCurrentSongValues).then((values) => {
-              document.getElementById('audio').volume = 0.05;
+              this.setVolumeAndVolumeController(this.state.volume);
               this.allCurrentSongInfoLoaded(pingStart, values);
             })
           );
@@ -154,96 +149,39 @@ export default class MusicPlayer extends Component {
       .catch((err) => console.error(err));
   }
 
-  componentDidMount() {
-    this.firstLoad();
-    setInterval(this.forceUpdate.bind(this), 100);
-
-    this.setState({
-      volumeControl: document.querySelector('.volumeControl'),
-      volumeController: document.querySelector('.volumeController')
-    });
-
-    document
-      .querySelector('.volumeControl')
-      .addEventListener('mousedown', this.startDrag.bind(this));
-
-    document.addEventListener('mouseup', this.stopDrag.bind(this));
-    document.addEventListener('mousemove', this.mouseMoved.bind(this));
-  }
-
-  startDrag(event) {
-    this.setState({ draggingVolume: true });
-    this.mouseMoved(event);
-  }
-
   setVolumeAndVolumeController(percentage) {
     this.state.volumeController.style.height = percentage + '%';
-    document.getElementById('audio').volume = percentage / 100;
-    this.setState({ volume: percentage / 100 });
+    this.state.audio.volume = percentage / 100;
+    this.setState({ volume: percentage });
+    localStorage.setItem('volume', percentage);
   }
 
   mouseMoved(event) {
     if (this.state.draggingVolume) {
-      var scrollTop =
-        window.pageYOffset ||
-        (document.documentElement || document.body.parentNode || document.body)
-          .scrollTop;
+      const scrollTop = window.pageYOffset || document.body.scrollTop;
       let y = event.clientY - this.state.volumeControl.offsetTop + scrollTop;
-      if (y < 0) y = 0;
-      if (y > this.state.volumeControl.offsetHeight + scrollTop) {
-        y = this.state.volumeControl.offsetHeight + scrollTop;
-      }
-      let exactPercentage =
-        100 - (y / this.state.volumeControl.offsetHeight) * 100;
-      exactPercentage = Math.max(0, exactPercentage);
-      exactPercentage = Math.min(100, exactPercentage);
-      this.setVolumeAndVolumeController(exactPercentage);
+      y = Math.max(Math.min(this.state.volumeControl.offsetHeight, y), 0);
+      const percent = 100 - (y / this.state.volumeControl.offsetHeight) * 100;
+      this.setVolumeAndVolumeController(percent);
     }
   }
 
-  stopDrag(event) {
-    if (this.state.draggingVolume) this.setState({ draggingVolume: false });
-  }
-
-  play() {
-    document.getElementById('audio').play();
-    this.setState({ paused: false });
-    this.state.setPause(false);
-  }
-
-  pause() {
-    document.getElementById('audio').pause();
-    this.setState({ paused: true });
-    this.state.setPause(true);
-  }
-
   playNext() {
-    this.setupNewAudioEle();
     const newStateProps = {
+      // put next song into the current song slot
       prevSong: this.state.currentSong,
       prevSongInfo: this.state.currentSongInfo,
       currentSong: this.state.nextSong,
-      currentSongInfo: this.state.nextSongInfo,
-      nextSong: null,
-      nextSongInfo: null
+      currentSongInfo: this.state.nextSongInfo
     };
-    this.setupNewSourceEle(newStateProps.currentSong);
+    this.playNewSource(newStateProps.currentSong); // and load it into the audio Ele
 
     this.setState(newStateProps, () => {
-      const pingStart = new Date();
-      fetch('http://' + this.state.address + '/timestamp')
-        .then((response) => response.json())
-        .then((response) => {
-          const currentTime =
-            response.timestamp / 1000 + (new Date() - pingStart) / 1000;
-        });
-
-      this.fetchNextSong()
+      this.fetchSongAndInfo('next')
         .then((values) => {
           const nextSongStuff = [values[0].blob(), values[1].json()];
-
           Promise.all(nextSongStuff).then((values) =>
-            this.loadNextSongIntoState(values)
+            this.loadSongIntoState(values, 'next')
           );
         })
         .catch((err) => console.error(err));
@@ -251,133 +189,101 @@ export default class MusicPlayer extends Component {
   }
 
   playPrev() {
-    this.setupNewAudioEle();
     const newStateProps = {
-      prevSong: null,
-      prevSongInfo: null,
       currentSong: this.state.prevSong,
       currentSongInfo: this.state.prevSongInfo,
       nextSong: this.state.currentSong,
       nextSongInfo: this.state.currentSongInfo
     };
-    this.setupNewSourceEle(newStateProps.currentSong);
+    this.playNewSource(newStateProps.currentSong);
 
     this.setState(newStateProps, () => {
-      const pingStart = new Date();
-      fetch('http://' + this.state.address + '/timestamp')
-        .then((response) => response.json())
-        .then((response) => {
-          const currentTime =
-            response.timestamp / 1000 + (new Date() - pingStart) / 1000 - 0.5;
-        });
-      this.fetchPrevSong()
+      this.fetchSongAndInfo('prev')
         .then((values) => {
           const prevSongStuff = [values[0].blob(), values[1].json()];
           Promise.all(prevSongStuff).then((values) =>
-            this.loadPrevSongIntoState(values)
+            this.loadSongIntoState(values, 'prev')
           );
         })
         .catch((err) => console.error(err));
     });
   }
 
-  setupNewAudioEle() {
-    // once a song ends, start playing the next preloaded song
-    document.querySelector('#audio').pause();
-    const audioEle = document.querySelector('#audio');
-    document.querySelector('.metadata').removeChild(audioEle);
-    // we replace the audio element in order to prevent
-    // caching fucking us up and it guarentees
-    // that the audio element will be at the start
-    // rather than the end going in an endless loop
-    const newAudioEle = document.createElement('audio');
-    newAudioEle.id = 'audio';
-    newAudioEle.volume = this.state.volume;
-    document.querySelector('.metadata').appendChild(newAudioEle);
+  playNewSource(src) {
+    this.state.audio.src = src;
+    this.state.paused ? this.state.audio.pause() : this.state.audio.play();
   }
 
-  setupNewSourceEle(src) {
-    const source = document.createElement('source');
-    source.src = src;
-    document.getElementById('audio').appendChild(source);
-    if (this.state.paused) this.pause();
-    else this.play();
-  }
-
-  loadPrevSongIntoState(values) {
-    // values array indices: 0: prevSongBlob
-    // 1: prevSongInfoJSON
-    const newStateProps = {
-      prevSong: URL.createObjectURL(values[0]),
-      prevSongInfo: this.formatTags(values[1])
-    };
-    this.setState(newStateProps);
-  }
-
-  loadNextSongIntoState(values) {
-    // values array indices:  0: nextSongBlob
-    // 1: nextSongInfoJSON
-    const newStateProps = {
-      nextSong: URL.createObjectURL(values[0]),
-      nextSongInfo: this.formatTags(values[1])
-    };
-    this.setState(newStateProps);
+  loadSongIntoState(values, key) {
+    const newState = {};
+    newState[key + 'Song'] = URL.createObjectURL(values[0]);
+    newState[key + 'SongInfo'] = this.formatTags(values[1]);
+    this.setState(newState);
+    return newState[key + 'Song'];
   }
 
   allCurrentSongInfoLoaded(pingStart, values) {
     // values array values:  0: currentSongBlob
     // 1: currentSongInfoJSON 2: timestampInfo
-    const currentSong = window.URL.createObjectURL(values[0]);
-    const source = document.createElement('source');
-    source.src = currentSong;
-    document.getElementById('audio').appendChild(source);
-
-    const newStateProps = {};
-    newStateProps.currentSong = currentSong;
-    newStateProps.currentSongInfo = this.formatTags(values[1]);
-    newStateProps.paused = values[2].message !== 'Currently playing';
-
-    // set time stamp with ping in mind.
-    const currentTimeWithPing =
-      values[2].timestamp / 1000 + (new Date() - pingStart) / 1000;
-
-    this.setState(newStateProps);
-
-    document.querySelector('#audio').currentTime = currentTimeWithPing;
-    !newStateProps.paused ? this.play() : this.pause();
-    this.forceUpdate();
+    this.playNewSource(
+      this.loadSongIntoState([values[0], values[1]], 'current') // returns a blob URL
+    );
+    this.setState({ paused: values[2].message !== 'Currently playing' }, () => {
+      // set time stamp with response time in mind.
+      const currentTimeWithPing =
+        values[2].timestamp / 1000 + (new Date() - pingStart) / 1000;
+      this.state.audio.currentTime = currentTimeWithPing;
+      !this.state.paused ? this.state.audio.play() : this.state.audio.pause();
+    });
   }
 
   formatTags(JSONinfo) {
     const tags = JSONinfo.tags;
-    const duration = JSONinfo.duration;
     return {
       artistName: tags.artist,
       songName: tags.title,
       album: tags.album,
       albumNameAndYear: tags.album + ' - ' + tags.year,
       albumArt: this.getAlbumArt(tags),
-      totalTime: duration / 1000
+      totalTime: JSONinfo.duration / 1000
     };
   }
 
   getAlbumArt(tags) {
-    if (tags.image) {
-      return tags.image;
-    } else {
-      return 'https://www.nomadfoods.com/wp-content/uploads/2018/08/placeholder-1-e1533569576673-960x960.png';
-    }
+    return tags.image ? tags.image : questionImage;
   }
 
   formatTime(timeInSeconds) {
-    const minutes = ~~(timeInSeconds / 60);
-    const seconds = ~~(timeInSeconds % 60);
-    const minutesString = minutes < 10 ? '0' + minutes : minutes;
-    const secondsString = seconds < 10 ? '0' + seconds : seconds;
-    return [minutesString, secondsString].join(':');
+    if (!Object.is(NaN, timeInSeconds))
+      return new Date(timeInSeconds * 1000).toISOString().substr(14, 5); // returns mm:ss
+  }
+
+  updateCurrentTime(ev) {
+    this.setState({
+      currentTimeDisplay: this.formatTime(ev.target.currentTime),
+      currentTime: ev.target.currentTime,
+      widthOfTimeDisplay:
+        (ev.target.currentTime / this.state.duration) * 99 + '%'
+    });
+  }
+
+  updateDuration(ev) {
+    this.setState({
+      durationFormatted: this.formatTime(ev.target.duration),
+      duration: ev.target.duration
+    });
   }
 
   render() {
+    if (
+      this.state.mounted &&
+      this.state.websocket &&
+      this.state.beenFiveSeconds &&
+      (!this.state.currentSongInfo || !this.state.currentSong)
+    ) {
+      // maybe a controller was skipping songs too quickly that currentsong is null
+      this.state.websocket.send('error');
+    }
     return (
       <div className='musicPlayer'>
         <div className='albumArt'>
@@ -396,33 +302,27 @@ export default class MusicPlayer extends Component {
           </div>
           <div className='songName'>{this.state.currentSongInfo.songName}</div>
           <div className='playedToTotal'>
-            {this.formatTime(
-              document.getElementById('audio') &&
-                document.getElementById('audio').currentTime
-            ) +
+            {this.state.currentTimeDisplay +
               ' / ' +
-              this.formatTime(
-                document.getElementById('audio') &&
-                  document.getElementById('audio').duration
-              )}
+              this.state.durationFormatted}
           </div>
           <div className='playedBar'>
             <div
               className='playedBarProgress'
               style={{
-                width:
-                  ((document.getElementById('audio') &&
-                    document.getElementById('audio').currentTime) /
-                    (document.getElementById('audio') &&
-                      document.getElementById('audio').duration)) *
-                    99 +
-                  '%'
+                width: this.state.widthOfTimeDisplay
               }}
             />
           </div>
-          <audio id='audio' controls={false}></audio>
+          <audio
+            ref={this.state.audioRef}
+            id='audio'
+            controls={false}
+            onDurationChange={this.updateDuration.bind(this)} // wait until the audio is loaded
+            onTimeUpdate={this.updateCurrentTime.bind(this)} //  update display and progress bar
+          ></audio>
         </div>
-        <div className='volumeControl' onWheel={this.scroll}>
+        <div className='volumeControl' onWheel={this.handleScroll.bind(this)}>
           <span className='volumeController' />
         </div>
       </div>

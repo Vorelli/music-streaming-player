@@ -16,6 +16,14 @@ const rules = [
     test: /\.s[ac]ss$/i,
     exclude: /node_modules/,
     use: ['style-loader', 'css-loader', 'sass-loader']
+  },
+  {
+    test: /\.(png|jpe?g|gif)$/i,
+    use: [
+      {
+        loader: 'file-loader'
+      }
+    ]
   }
 ];
 
@@ -28,5 +36,8 @@ module.exports = {
   },
   module: { rules },
   plugins: [new HtmlPlugin({ template: './public/index.html' })],
-  devServer: { compress: true, historyApiFallback: true }
+  devServer: {
+    compress: true,
+    historyApiFallback: true
+  }
 };

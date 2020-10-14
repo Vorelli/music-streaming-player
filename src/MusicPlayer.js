@@ -63,7 +63,7 @@ export default class MusicPlayer extends Component {
     );
     document.addEventListener('mousemove', this.mouseMoved.bind(this));
 
-    this.state.audio.addEventListener('paused', () => {
+    this.state.audio.addEventListener('pause', () => {
       this.setState({ paused: true });
       this.state.setPause(true);
     });
@@ -95,7 +95,7 @@ export default class MusicPlayer extends Component {
       reset: this.reset.bind(this)
     };
     if (commands[data]) commands[data]();
-    else if (data.slice(0, 8) === 'newtime:') {
+    else if (data.slice(0, 8) === 'newTime:') {
       this.state.audio.currentTime = data.slice(9) / 1000;
     }
   }
